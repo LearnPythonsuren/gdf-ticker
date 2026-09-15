@@ -1,26 +1,24 @@
 services:
   gdf-ssh-server:
-    image: alpine:3.19
+    image: ubuntu:22.04
     container_name: gdf-ssh-server
     ports:
       - "2222:22"
+    environment:
+      DEBIAN_FRONTEND: noninteractive
     volumes:
-      - ./ssh-keys/authorized:/home/deploy/.ssh
+      - ./ssh-keys/authorized:/home/deploy/.ssh/authorized_keys
       - /var/run/docker.sock:/var/run/docker.sock
-    command: sh -c '
-      apk add --no-cache openssh-server openssh-keygen sudo &&
-      adduser -D -s /bin/bash deploy &&
-      mkdir -p /home/deploy/.ssh &&
-      chmod 700 /home/deploy/.ssh &&
-      chown deploy:deploy /home/deploy/.ssh &&
-      ssh-keygen -A &&
-      echo "deploy ALL=(ALL) NOPASSWD: /usr/bin/docker" > /etc/sudoers.d/docker-deploy &&
-      chmod 440 /etc/sudoers.d/docker-deploy &&
-      /usr/sbin/sshd -D
-    '
+    entrypoint: /bin/bash
+    command:
+      - -c
+      - |
+        apt-get update && apt-get install -y openssh-server sudo docker.io && \
+        useradd -m -s /bin/bash deploy && \
+        mkdir -p /home/deploy/.ssh && \
+        chown deploy:deploy /home/deploy/.ssh && \
+        chmod 700 /home/deploy/.ssh && \
+        echo "deploy ALL=(ALL) NOPASSWD: /usr/bin/docker" > /etc/sudoers.d/docker && \
+        service ssh start && \
+        while true; do sleep 1; done
     restart: unless-stopped
-    healthcheck:
-      test: ["CMD", "nc", "-z", "localhost", "22"]
-      interval: 10s
-      timeout: 5s
-      retries: 3
