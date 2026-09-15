@@ -1,0 +1,521 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>GDF Realtime Ticker</title>
+<style>
+  :root {
+    --bg: #0a0e14;
+    --panel: #121821;
+    --border: #1e2733;
+    --fg: #e6edf3;
+    --muted: #7d8590;
+    --green: #1a7f37;
+    --green-bg: #0f2a17;
+    --red: #b62324;
+    --red-bg: #2a0f10;
+    --accent: #2f81f7;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--fg);
+    font-family: -apple-system, "Segoe UI", Roboto, monospace, sans-serif;
+  }
+  header {
+    display: flex; align-items: center; gap: 16px;
+    padding: 10px 18px; background: var(--panel);
+    border-bottom: 1px solid var(--border);
+  }
+  header h1 { font-size: 16px; margin: 0; letter-spacing: .5px; }
+  nav button {
+    background: transparent; color: var(--muted); border: none;
+    padding: 8px 14px; cursor: pointer; font-size: 14px; border-radius: 6px;
+  }
+  nav button.active { background: var(--border); color: var(--fg); }
+  .stats { margin-left: auto; font-size: 13px; color: var(--muted); }
+  .stats b { color: var(--fg); }
+  main { padding: 18px; }
+  .tab { display: none; }
+  .tab.active { display: block; }
+  .card {
+    background: var(--panel); border: 1px solid var(--border);
+    border-radius: 10px; padding: 20px; max-width: 560px;
+  }
+  label { display: block; font-size: 13px; color: var(--muted); margin: 12px 0 4px; }
+  input {
+    width: 100%; padding: 10px; background: var(--bg); color: var(--fg);
+    border: 1px solid var(--border); border-radius: 6px; font-size: 14px;
+  }
+  .btn {
+    margin-top: 16px; padding: 10px 18px; background: var(--accent);
+    color: #fff; border: none; border-radius: 6px; cursor: pointer; font-size: 14px;
+  }
+  .btn.secondary { background: var(--border); }
+  .out {
+    margin-top: 14px; padding: 12px; background: var(--bg);
+    border: 1px solid var(--border); border-radius: 6px;
+    font-family: monospace; font-size: 13px; word-break: break-all;
+  }
+  .hint { font-size: 12px; color: var(--muted); margin-top: 8px; line-height: 1.5; }
+
+  /* ---- TV tape (horizontal crawl, like a news ticker) ---- */
+  #tapeWrap { overflow: hidden; height: calc(100vh - 110px); position: relative;
+    display: flex; flex-direction: column; gap: 8px; padding-top: 6px; }
+  .tapeline { position: relative; overflow: hidden; flex: 1 1 0; min-height: 56px; }
+  .tapetrack { position: absolute; top: 0; left: 0; height: 100%;
+    display: flex; align-items: center; gap: 10px; will-change: transform; white-space: nowrap; }
+  .cell {
+    box-sizing: border-box; display: inline-flex; flex-direction: column; justify-content: center;
+    min-width: 190px; height: 100%; padding: 8px 14px; gap: 2px;
+    background: var(--panel); border: 1px solid var(--border); border-radius: 10px;
+    font-variant-numeric: tabular-nums;
+  }
+  .cell .top { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--muted); }
+  .cell .top .sym { font-weight: 700; color: var(--fg); letter-spacing: .3px; }
+  .cell .top .ex { font-size: 10px; opacity: .8; }
+  .cell .ltp { font-size: 20px; font-weight: 700; line-height: 1.1; }
+  .cell .chg { font-size: 12px; }
+  .cell .arrow { font-size: 11px; }
+  .cell.up .ltp { color: #eafff0; }
+  .cell.up .chg, .cell.up .arrow { color: #3fb950; }
+  .cell.down .ltp { color: #fff0f0; }
+  .cell.down .chg, .cell.down .arrow { color: #ff6b6b; }
+  /* stale = no tick within STALE window: dim + red edge */
+  .cell.stale { opacity: .55; border-color: var(--red); }
+  .controls { display: flex; gap: 10px; align-items: center; margin-bottom: 4px; flex-wrap: wrap; }
+  .controls input[type=range] { width: 160px; }
+  .controls input[type=text] { max-width: 200px; }
+  .controls input[type=number] { width: 70px; padding: 8px; background: var(--bg);
+    color: var(--fg); border: 1px solid var(--border); border-radius: 6px; }
+  .controls label { margin: 0; }
+  .pill { font-size: 12px; padding: 3px 8px; border-radius: 20px; background: var(--border); }
+  .pill.live { background: var(--green); color: #fff; }
+  .chk { display: flex; align-items: center; gap: 6px; font-size: 13px; color: var(--muted); }
+</style>
+</head>
+<body>
+<header>
+  <h1>◆ GDF REALTIME</h1>
+  <nav>
+    <button data-tab="tv" class="active">TV Tape</button>
+    <button data-tab="auth">Authentication</button>
+    <button data-tab="keys">Key Creation</button>
+    <button data-tab="logs">Logs</button>
+    <button data-tab="inst">Instruments</button>
+  </nav>
+  <div class="stats" id="statsBar">—</div>
+</header>
+
+<main>
+  <!-- ---- TV TAPE ---- -->
+  <section class="tab active" id="tab-tv">
+    <div class="controls">
+      <span class="pill" id="statusPill">idle</span>
+      <label>Speed</label>
+      <input type="range" id="speed" min="10" max="300" value="80" />
+      <label>Lines</label>
+      <input type="number" id="lines" min="1" max="60" value="10" title="number of horizontal tape strips (not symbol count)" />
+      <input type="text" id="filter" placeholder="filter symbol / exchange…" />
+      <span class="chk"><input type="checkbox" id="freshOnly" /> fresh only</span>
+      <button class="btn secondary" id="pauseBtn" style="margin:0;padding:6px 12px;">Pause</button>
+    </div>
+    <div id="tapeWrap"></div>
+  </section>
+
+  <!-- ---- AUTH ---- -->
+  <section class="tab" id="tab-auth">
+    <div class="card">
+      <h2 style="margin-top:0;">Authenticate the feed</h2>
+      <label>Session token</label>
+      <input id="authToken" placeholder="paste the token from Key Creation" />
+      <button class="btn" id="authBtn">Start Feed</button>
+      <div class="out" id="authOut" style="display:none;"></div>
+      <p class="hint">
+        The token is an opaque handle. The backend maps it to the real API key
+        and performs the Global Datafeeds Authenticate. The API key is never
+        sent to this page.
+      </p>
+    </div>
+  </section>
+
+  <!-- ---- KEY CREATION ---- -->
+  <section class="tab" id="tab-keys">
+    <div class="card">
+      <h2 style="margin-top:0;">Create a session key</h2>
+      <label>Admin password</label>
+      <input id="adminPw" type="password" placeholder="admin password" />
+      <label>API key</label>
+      <input id="apikey" placeholder="Global Datafeeds API key" />
+      <label>Username</label>
+      <input id="username" placeholder="account username" />
+      <button class="btn" id="createBtn">Generate Token</button>
+      <div class="out" id="keyOut" style="display:none;"></div>
+      <p class="hint">
+        A SHA-256 fingerprint of (apikey + username) is stored to detect
+        duplicates. SHA-256 is one-way and cannot be reversed — so instead of
+        sending the key to the browser, we hand back a random opaque token.
+        Give that token to the operator for the Authentication tab. The real
+        API key stays on the backend only.
+      </p>
+      <div id="keyList" class="hint" style="margin-top:16px;"></div>
+    </div>
+  </section>
+
+  <!-- ---- LOGS ---- -->
+  <section class="tab" id="tab-logs">
+    <div class="card" style="max-width:720px;">
+      <h2 style="margin-top:0;">Your tick &amp; event logs</h2>
+      <label>Admin password</label>
+      <input id="logPw" type="password" placeholder="admin password" />
+      <button class="btn" id="logRefresh">List Logs</button>
+      <div id="logStats" class="hint" style="margin-top:12px;"></div>
+      <div id="logList" style="margin-top:12px;"></div>
+      <p class="hint">
+        <b>ticks-YYYY-MM-DD.jsonl</b> — one JSON line per tick
+        (time, exchange, symbol, ltp, pc, pcp, change, trade time).<br>
+        <b>events-YYYY-MM-DD.log</b> — auth, instrument counts, subscribe,
+        disconnects, errors.<br>
+        Files are written on the server under the mounted <code>/data/logs</code>
+        volume, so they survive container restarts.
+      </p>
+    </div>
+  </section>
+
+  <!-- ---- INSTRUMENTS CACHE ---- -->
+  <section class="tab" id="tab-inst">
+    <div class="card" style="max-width:720px;">
+      <h2 style="margin-top:0;">Cached instrument files</h2>
+      <label>Admin password</label>
+      <input id="instPw" type="password" placeholder="admin password" />
+      <button class="btn" id="instRefresh">List Files</button>
+      <div id="instList" style="margin-top:12px;"></div>
+      <p class="hint">
+        One file per exchange per day, e.g. <code>NFO-YYYY-MM-DD.json</code> —
+        the raw GetInstruments response. Plus <code>_merged-*.json</code>
+        (per-exchange identifier lists) and <code>_subscribed-*.json</code>
+        (the exact flat list actually subscribed). Symbols taken =
+        the <code>Identifier</code> of every returned row, after optional
+        <code>INCLUDE_INSTRUMENT_TYPES</code> / <code>INCLUDE_PRODUCTS</code>
+        filters.
+      </p>
+    </div>
+  </section>
+</main>
+
+<script>
+// ---- tab switching ----
+document.querySelectorAll("nav button").forEach((b) => {
+  b.onclick = () => {
+    document.querySelectorAll("nav button").forEach((x) => x.classList.remove("active"));
+    document.querySelectorAll(".tab").forEach((x) => x.classList.remove("active"));
+    b.classList.add("active");
+    document.getElementById("tab-" + b.dataset.tab).classList.add("active");
+    if (b.dataset.tab === "keys") loadKeys();
+    if (b.dataset.tab === "logs") loadLogs();
+    if (b.dataset.tab === "inst") loadInst();
+  };
+});
+
+// ---- Key creation ----
+const createBtn = document.getElementById("createBtn");
+createBtn.onclick = async () => {
+  const pw = document.getElementById("adminPw").value;
+  const apikey = document.getElementById("apikey").value.trim();
+  const username = document.getElementById("username").value.trim();
+  const out = document.getElementById("keyOut");
+  out.style.display = "block";
+  out.textContent = "creating…";
+  try {
+    const r = await fetch("/api/admin/keys", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "x-admin-password": pw },
+      body: JSON.stringify({ apikey, username }),
+    });
+    const d = await r.json();
+    if (d.token) {
+      out.innerHTML = "Session token" + (d.reused ? " (existing)" : "") +
+        ":<br><b>" + d.token + "</b>";
+      loadKeys();
+    } else {
+      out.textContent = "Error: " + (d.error || "unknown");
+    }
+  } catch (e) { out.textContent = "Error: " + e.message; }
+};
+
+async function loadKeys() {
+  const pw = document.getElementById("adminPw").value;
+  if (!pw) return;
+  try {
+    const r = await fetch("/api/admin/keys", { headers: { "x-admin-password": pw } });
+    if (!r.ok) return;
+    const list = await r.json();
+    document.getElementById("keyList").innerHTML =
+      "<b>Existing tokens:</b><br>" +
+      (list.length ? list.map((e) =>
+        `${e.username} — <code>${e.token.slice(0,10)}…</code> (${e.fingerprint})`
+      ).join("<br>") : "none");
+  } catch {}
+}
+
+// ---- shared: request a one-time ticket, then let the browser stream the file
+// natively. Never buffers big files into a JS blob (that was the Failed to fetch).
+async function ticketDownload(kind, name, pw) {
+  try {
+    const r = await fetch("/api/admin/download-ticket", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "x-admin-password": pw },
+      body: JSON.stringify({ kind, name }),
+    });
+    if (!r.ok) { alert("Download failed: " + r.status); return; }
+    const d = await r.json();
+    // native browser download — handles multi-hundred-MB files fine
+    window.location.href = d.url;
+  } catch (e) { alert("Download error: " + e.message); }
+}
+
+// ---- Logs ----
+document.getElementById("logRefresh").onclick = loadLogs;
+async function loadLogs() {
+  const pw = document.getElementById("logPw").value;
+  if (!pw) return;
+  await listDownloadable("/api/admin/logs", "logs", pw, "logList");
+}
+
+// ---- Instruments cache ----
+document.getElementById("instRefresh").onclick = loadInst;
+async function loadInst() {
+  const pw = document.getElementById("instPw").value;
+  if (!pw) return;
+  await listDownloadable("/api/admin/instruments", "instruments", pw, "instList");
+}
+
+// shared: list files from an admin endpoint; downloads use one-time tickets.
+async function listDownloadable(listUrl, kind, pw, targetId) {
+  const el = document.getElementById(targetId);
+  try {
+    const r = await fetch(listUrl, { headers: { "x-admin-password": pw } });
+    if (!r.ok) { el.textContent = "unauthorized"; return; }
+    const files = await r.json();
+    if (!files.length) { el.textContent = "no files yet"; return; }
+    el.innerHTML = files.map((f) => {
+      const kb = (f.size / 1024).toFixed(1);
+      return `<div style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid var(--border);">
+        <span>${f.name} <span style="color:var(--muted)">— ${kb} KB</span></span>
+        <a class="btn secondary" style="margin:0;padding:4px 12px;text-decoration:none;"
+           href="#" data-name="${f.name}">Download</a></div>`;
+    }).join("");
+    el.querySelectorAll("a[data-name]").forEach((a) => {
+      a.onclick = (ev) => { ev.preventDefault(); ticketDownload(kind, a.dataset.name, pw); };
+    });
+  } catch (e) { el.textContent = "Error: " + e.message; }
+}
+
+// ---- Auth ----
+document.getElementById("authBtn").onclick = async () => {
+  const token = document.getElementById("authToken").value.trim();
+  const out = document.getElementById("authOut");
+  out.style.display = "block";
+  out.textContent = "starting…";
+  try {
+    const r = await fetch("/api/auth", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ token }),
+    });
+    const d = await r.json();
+    out.textContent = d.ok ? "Feed started. Status: " + d.status
+                           : "Error: " + (d.error || "unknown");
+  } catch (e) { out.textContent = "Error: " + e.message; }
+};
+
+// ---- TV TAPE (horizontal crawl, virtualized) ----
+// rows = data only. order = filtered key list. We split `order` across N lines
+// evenly (500 symbols / 50 lines = 100 each). Each line crawls left; we only
+// paint the cells currently visible in that line (+ buffer), so 15k is smooth.
+const rows = new Map();          // k -> row data
+let order = [];                  // filtered key list
+let filterText = "";
+let freshOnly = false;
+let paused = false;
+let speed = 80;                  // px per second
+let numLines = 10;
+const CELL_W = 200;              // min-width(190) + gap(10)
+
+const tapeWrap = document.getElementById("tapeWrap");
+let lines = [];                  // [{ el, track, keys:[], offset, pool:[] }]
+
+document.getElementById("speed").oninput = (e) => { speed = +e.target.value; };
+document.getElementById("lines").oninput = (e) => {
+  // Hard cap: this is the number of horizontal STRIPS, not symbol count.
+  // A huge value (e.g. 15000) would create 15000 DOM tracks and freeze the tab.
+  numLines = Math.max(1, Math.min(60, +e.target.value || 1));
+  if (numLines !== +e.target.value) e.target.value = numLines;
+  buildLines();
+};
+document.getElementById("filter").oninput = (e) => {
+  filterText = e.target.value.toLowerCase(); rebuildOrder();
+};
+document.getElementById("freshOnly").onchange = (e) => {
+  freshOnly = e.target.checked; rebuildOrder();
+};
+document.getElementById("pauseBtn").onclick = (e) => {
+  paused = !paused; e.target.textContent = paused ? "Resume" : "Pause";
+};
+
+function fmt(v) {
+  if (v === null || v === undefined) return "—";
+  return typeof v === "number" ? v.toLocaleString(undefined,{maximumFractionDigits:2}) : v;
+}
+
+function passesFilter(d) {
+  if (freshOnly && d.stale) return false;
+  if (filterText && !((d.s + " " + d.e).toLowerCase().includes(filterText))) return false;
+  return true;
+}
+
+// Create N line containers.
+function buildLines() {
+  tapeWrap.innerHTML = "";
+  lines = [];
+  for (let i = 0; i < numLines; i++) {
+    const el = document.createElement("div");
+    el.className = "tapeline";
+    const track = document.createElement("div");
+    track.className = "tapetrack";
+    el.appendChild(track);
+    tapeWrap.appendChild(el);
+    lines.push({ el, track, keys: [], offset: i * 60, pool: [] });
+  }
+  splitKeysAcrossLines();
+}
+
+// Rebuild ordered key list from data + filters, then split across lines.
+function rebuildOrder() {
+  order = [];
+  for (const [k, d] of rows) if (passesFilter(d)) order.push(k);
+  splitKeysAcrossLines();
+}
+
+// Divide `order` evenly across the lines (contiguous chunks).
+function splitKeysAcrossLines() {
+  if (!lines.length) return;
+  const per = Math.ceil(order.length / lines.length) || 1;
+  for (let i = 0; i < lines.length; i++) {
+    lines[i].keys = order.slice(i * per, (i + 1) * per);
+  }
+}
+
+function getCell(line, i) {
+  let el = line.pool[i];
+  if (!el) {
+    el = document.createElement("div");
+    el.className = "cell";
+    el.style.position = "absolute";
+    line.track.appendChild(el);
+    line.pool[i] = el;
+  }
+  return el;
+}
+
+function paintCell(el, d, leftPx) {
+  const up = (d.pcp || 0) >= 0;
+  el.className = "cell " + (up ? "up" : "down") + (d.stale ? " stale" : "");
+  el.style.transform = `translateX(${leftPx}px)`;
+  el.style.display = "inline-flex";
+  const arrow = up ? "▲" : "▼";
+  const chgTxt = d.pcp == null ? "—"
+    : `${up ? "+" : ""}${fmt(d.chg)} (${up ? "+" : ""}${fmt(d.pcp)}%)`;
+  el.innerHTML =
+    `<span class="top"><span class="sym">${d.s}</span><span class="ex">(${d.e})</span></span>` +
+    `<span class="ltp">${fmt(d.ltp)}</span>` +
+    `<span class="chg"><span class="arrow">${arrow}</span> ${chgTxt}</span>`;
+}
+
+// Render only visible cells for one line at its current offset.
+function renderLine(line) {
+  const n = line.keys.length;
+  if (n === 0) { for (const el of line.pool) el.style.display = "none"; return; }
+  const viewW = line.el.clientWidth;
+  const totalW = n * CELL_W;
+  const first = Math.floor(line.offset / CELL_W);
+  const count = Math.ceil(viewW / CELL_W) + 2;
+  let p = 0;
+  for (let c = 0; c < count; c++) {
+    const virtual = first + c;
+    const idx = ((virtual % n) + n) % n;
+    const d = rows.get(line.keys[idx]);
+    if (!d) continue;
+    const el = getCell(line, p++);
+    paintCell(el, d, virtual * CELL_W - line.offset);
+  }
+  for (let i = p; i < line.pool.length; i++) line.pool[i].style.display = "none";
+}
+
+function applyRows(list) {
+  let added = false;
+  for (const d of list) {
+    if (!rows.has(d.k)) added = true;
+    rows.set(d.k, d);
+  }
+  if (added || freshOnly) rebuildOrder(); // freshOnly changes membership as staleness flips
+}
+
+function applyStaleness(list) {
+  let changed = false;
+  for (const s of list) {
+    const d = rows.get(s.k);
+    if (d && d.stale !== s.stale) { d.stale = s.stale; changed = true; }
+  }
+  if (changed && freshOnly) rebuildOrder();
+}
+
+// ---- WebSocket to backend ----
+function connectWS() {
+  const proto = location.protocol === "https:" ? "wss" : "ws";
+  const ws = new WebSocket(`${proto}://${location.host}/stream`);
+  ws.onmessage = (ev) => {
+    const m = JSON.parse(ev.data);
+    if (m.type === "snapshot") { rows.clear(); applyRows(m.rows); rebuildOrder(); setStats(m.stats); }
+    else if (m.type === "delta") { applyRows(m.rows); setStats(m.stats); }
+    else if (m.type === "staleness") { applyStaleness(m.rows); setStats(m.stats); }
+  };
+  ws.onclose = () => setTimeout(connectWS, 2000);
+}
+
+function setStats(s) {
+  if (!s) return;
+  const logged = s.log ? ` · logged <b>${s.log.ticksLoggedToday}</b>` : "";
+  const diag = s.diagnostic
+    ? ` · <span style="color:#ffcc00">⚠ ${s.diagnostic}</span>` : "";
+  document.getElementById("statsBar").innerHTML =
+    `status <b>${s.status}</b> · total <b>${s.total}</b> · ` +
+    `<span style="color:#3fb950">fresh ${s.fresh}</span> · ` +
+    `<span style="color:#ff6b6b">stale ${s.stale}</span>` + logged + diag;
+  const pill = document.getElementById("statusPill");
+  pill.textContent = s.status;
+  pill.className = "pill" + (s.status === "live" ? " live" : "");
+}
+
+// ---- crawl loop ----
+let lastT = performance.now();
+function loop(t) {
+  const dt = (t - lastT) / 1000; lastT = t;
+  for (const line of lines) {
+    const totalW = line.keys.length * CELL_W;
+    if (!paused && totalW > 0) {
+      line.offset += speed * dt;
+      if (line.offset >= totalW) line.offset -= totalW; // seamless wrap
+    }
+    renderLine(line);
+  }
+  requestAnimationFrame(loop);
+}
+
+buildLines();
+requestAnimationFrame(loop);
+connectWS();
+
+</script>
+</body>
+</html>

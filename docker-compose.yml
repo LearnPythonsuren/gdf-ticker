@@ -1,0 +1,35 @@
+services:
+  gdf-ticker:
+    build: .
+    image: gdf-ticker:latest
+    ports:
+      - "8080:8080"
+    volumes:
+      - gdf-data:/data
+    environment:
+      GDF_WS_URL: "wss://test.lisuns.com:4576/"
+      ADMIN_PASSWORD: "Admin@123"
+      EXCHANGES: "MCX"
+      MAX_SUBSCRIPTIONS: "15000"
+      STALE_MS: "3000"
+      BROADCAST_INTERVAL_MS: "500"
+      SUB_BATCH_SIZE: "2000"
+      SUB_BATCH_GAP_MS: "50"
+      LOG_DIR: "/data/logs"
+      LOG_TICKS: "true"
+      CACHE_DIR: "/data/instruments"
+      REUSE_CACHE: "false"
+      INCLUDE_INSTRUMENT_TYPES: ""
+      INCLUDE_PRODUCTS: ""
+      INSTRUMENT_STALL_MS: "30000"
+      DEBUG_WS: "true"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "node", "-e", "require('http').get('http://localhost:8080/api/stats', (r) => { if (r.statusCode !== 200) throw new Error('unhealthy'); })"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+volumes:
+  gdf-data:

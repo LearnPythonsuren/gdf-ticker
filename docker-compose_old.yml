@@ -1,0 +1,34 @@
+services:
+  gdf-ticker:
+    build: .
+    ports:
+      - "8080:8080"
+    volumes:
+      - gdf-data:/data
+    environment:
+      # ---- REQUIRED: your Global Datafeeds WebSocket endpoint ----
+      GDF_WS_URL: "wss://test.lisuns.com:4576/"
+
+      # ---- Admin password protecting the Key Creation tab. CHANGE THIS. ----
+      ADMIN_PASSWORD: "Admin@123"
+
+      # ---- Optional tuning ----
+      EXCHANGES: "NSE,NSE_IDX,NFO,BFO,BSE,BSE_IDX,MCX"
+      MAX_SUBSCRIPTIONS: "15000"
+      STALE_MS: "3000"
+      # ---- Your logs (written to the /data volume, survive restarts) ----
+      LOG_DIR: "/data/logs"
+      LOG_TICKS: "true"   # set "false" to stop per-tick JSONL (event log stays on)
+      # ---- Instrument cache (one JSON file per exchange, per day) ----
+      CACHE_DIR: "/data/instruments"
+      REUSE_CACHE: "true"   # "true" = reuse today's cached files on restart
+      # ---- Symbol selection (empty = take every Identifier per exchange) ----
+      INCLUDE_INSTRUMENT_TYPES: ""   # e.g. "FUTIDX,FUTSTK,OPTIDX,OPTSTK"
+      INCLUDE_PRODUCTS: ""           # e.g. "NIFTY,BANKNIFTY,RELIANCE"
+      BROADCAST_INTERVAL_MS: "500"
+      SUB_BATCH_SIZE: "2000"
+      SUB_BATCH_GAP_MS: "50"
+    restart: unless-stopped
+
+volumes:
+  gdf-data:

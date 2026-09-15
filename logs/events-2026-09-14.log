@@ -1,0 +1,7 @@
+2026-09-14T18:18:18.057Z [INFO] log rolled to 2026-09-14
+2026-09-14T18:19:34.790Z [INFO] log rolled to 2026-09-14
+2026-09-14T18:21:13.080Z [INFO] log rolled to 2026-09-14
+2026-09-14T18:22:13.565Z [INFO] authenticated: Welcome!
+2026-09-14T18:22:30.471Z [INFO] instruments MCX: 34402 returned, 34402 selected
+2026-09-14T18:22:30.523Z [INFO] merged 34402 instruments, subscribing to 15000
+2026-09-14T18:22:34.419Z [INFO] live: 15000 subscriptions active
