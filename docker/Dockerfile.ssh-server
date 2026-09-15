@@ -1,0 +1,30 @@
+FROM alpine:3.19
+
+# Install OpenSSH server
+RUN apk add --no-cache openssh-server openssh-keygen bash docker-cli
+
+# Create deploy user
+RUN adduser -D -s /bin/bash deploy && \
+    echo "deploy:password" | chpasswd
+
+# Create SSH directory
+RUN mkdir -p /home/deploy/.ssh /run/sshd && \
+    chmod 700 /home/deploy/.ssh && \
+    chown deploy:deploy /home/deploy/.ssh
+
+# Generate host keys
+RUN ssh-keygen -A
+
+# Configure SSH for key-based auth
+RUN sed -i 's/#PubkeyAuthentication yes/PubkeyAuthentication yes/' /etc/ssh/sshd_config && \
+    sed -i 's/#PasswordAuthentication yes/PasswordAuthentication no/' /etc/ssh/sshd_config && \
+    echo "PermitRootLogin no" >> /etc/ssh/sshd_config && \
+    echo "AllowUsers deploy" >> /etc/ssh/sshd_config
+
+# Allow deploy user to run docker without sudo
+RUN echo "deploy ALL=(ALL) NOPASSWD: /usr/bin/docker" >> /etc/sudoers.d/docker-deploy && \
+    chmod 440 /etc/sudoers.d/docker-deploy
+
+EXPOSE 22
+
+CMD ["/usr/sbin/sshd", "-D"]
