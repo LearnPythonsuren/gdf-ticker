@@ -9,7 +9,7 @@ on:
 
 env:
   REGISTRY: ghcr.io
-  IMAGE_NAME: ${{ github.repository }}
+  IMAGE_NAME: ${{ format('{0}/{1}', github.repository_owner, github.event.repository.name) | lower }}
 
 jobs:
   test:
@@ -59,7 +59,7 @@ jobs:
         id: meta
         uses: docker/metadata-action@v5
         with:
-          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          images: ${{ env.REGISTRY }}/${{ format('{0}/{1}', github.repository_owner, github.event.repository.name) | lower }}
           tags: |
             type=ref,event=branch
             type=semver,pattern={{version}}
@@ -74,8 +74,8 @@ jobs:
           push: ${{ github.event_name != 'pull_request' }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
-          cache-from: type=registry,ref=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:buildcache
-          cache-to: type=registry,ref=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:buildcache,mode=max
+          cache-from: type=registry,ref=${{ env.REGISTRY }}/${{ format('{0}/{1}', github.repository_owner, github.event.repository.name) | lower }}:buildcache
+          cache-to: type=registry,ref=${{ env.REGISTRY }}/${{ format('{0}/{1}', github.repository_owner, github.event.repository.name) | lower }}:buildcache,mode=max
 
   security-scan:
     name: Security Scan
@@ -88,7 +88,7 @@ jobs:
       - name: Run Trivy vulnerability scanner
         uses: aquasecurity/trivy-action@master
         with:
-          image-ref: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.sha }}
+          image-ref: ${{ env.REGISTRY }}/${{ format('{0}/{1}', github.repository_owner, github.event.repository.name) | lower }}:${{ github.sha }}
           format: 'sarif'
           output: 'trivy-results.sarif'
           severity: 'CRITICAL,HIGH'
